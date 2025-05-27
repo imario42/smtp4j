@@ -37,12 +37,15 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.stream.Stream;
 
 /**
  * Handles the SMTP protocol.
  */
 public class SmtpTransactionHandler {
+    private static final Logger LOG = Logger.getLogger(SmtpTransactionHandler.class.getName());
 
     private final SmtpServer smtpServer;
     private final SocketTracker socketTracker;
@@ -118,7 +121,7 @@ public class SmtpTransactionHandler {
         }
 
         //extends the EHLO/HELO command to greet the client
-        SmtpCommand ehlo = SmtpCommand.parse(nextLine());
+        SmtpCommand ehlo = nextCommand();
         if (ehlo == null) {
             return;
         }
@@ -181,7 +184,7 @@ public class SmtpTransactionHandler {
                 }
             }
 
-            SmtpCommand command = nextCommand();
+            SmtpCommand command = nextValidCommand();
             if (command == null) {
                 return;
             }
@@ -315,8 +318,8 @@ public class SmtpTransactionHandler {
                         reply(SmtpProtocolConstants.CODE_OK, "OK");
                     }
 
-                    command = nextCommand();
-                    commandType = command.getType();
+                    command = nextValidCommand();
+                    commandType = command != null ? command.getType() : null;
                 }
             }
 
@@ -404,8 +407,8 @@ public class SmtpTransactionHandler {
         }
     }
 
-    private SmtpCommand nextCommand() throws SmtpProtocolException {
-        SmtpCommand command = SmtpCommand.parse(nextLine());
+    private SmtpCommand nextValidCommand() throws SmtpProtocolException {
+        SmtpCommand command = nextCommand();
         if (command == null) {
             return null;
         }
@@ -429,10 +432,18 @@ public class SmtpTransactionHandler {
                 return command;
             }
 
-            command = SmtpCommand.parse(nextLine());
+            command = nextCommand();
         }
 
         throw new SmtpProtocolException("Unexpected end of exchange (no more command)");
+    }
+
+    private SmtpCommand nextCommand() throws SmtpProtocolException {
+        SmtpCommand ret = SmtpCommand.parse(nextLine());
+        if (LOG.isLoggable(Level.FINER)) {
+            LOG.finer("< " + ret.toString());
+        }
+        return ret;
     }
 
     private void reply(int code, List<String> messages) {
@@ -461,11 +472,15 @@ public class SmtpTransactionHandler {
     }
 
     private void send(StringBuilder builder) {
+        String reply = builder.toString();
+        if (LOG.isLoggable(Level.FINER)) {
+            LOG.finer("> " + reply);
+        }
         SmtpExchange exchange = new SmtpExchange(
                 readData.stream()
                         .map(b -> new String(b, StandardCharsets.UTF_8))
                         .toList(),
-                builder.toString());
+                reply);
         exchanges.add(exchange);
         readData.clear();
 
